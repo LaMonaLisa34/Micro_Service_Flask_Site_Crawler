@@ -62,6 +62,7 @@ def metrics():
 
     registry = CollectorRegistry()
 
+    # --- Métriques globales ---
     g_total = Gauge("crawler_total_urls", "Total URLs found", registry=registry)
     g_active = Gauge("crawler_active_urls", "Active URLs (status=200)", registry=registry)
     g_inactive = Gauge("crawler_inactive_urls", "Inactive URLs", registry=registry)
@@ -73,5 +74,25 @@ def metrics():
     g_inactive.set(inactive)
     g_avg_time.set(avg_time)
     g_error_rate.set(error_rate)
+
+    # --- Métriques détaillées par URL ---
+    g_url_status = Gauge(
+        "crawler_url_status",
+        "Status of each crawled URL",
+        ["url", "status"],
+        registry=registry
+    )
+    g_url_time = Gauge(
+        "crawler_url_response_time_seconds",
+        "Response time of each crawled URL",
+        ["url"],
+        registry=registry
+    )
+
+    for u in urls:
+        status = "200" if u.is_active else "error"
+        g_url_status.labels(url=u.url, status=status).set(1 if u.is_active else 0)
+        if u.response_time:
+            g_url_time.labels(url=u.url).set(u.response_time)
 
     return Response(generate_latest(registry), mimetype="text/plain")
