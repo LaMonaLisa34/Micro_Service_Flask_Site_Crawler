@@ -24,4 +24,4 @@ services:
       - FLASK_ENV=development
       - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/crawlerdb
     ports:
-      - "5001:5000"
+      - "5051:5000"
