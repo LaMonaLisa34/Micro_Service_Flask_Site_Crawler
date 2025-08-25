@@ -44,11 +44,14 @@ jobs:
         run: |
           ssh -p "${{ secrets.VM_SSH_PORT_PROD }}" -o BatchMode=yes "${{ secrets.VM_USER_PROD }}@${{ secrets.VM_HOST_PROD }}" true
 
-      - name: Rsync repository to Prod (exclude .env)
+      - name: Rsync repository to Prod (exclude .env and volumes)
         run: |
-          rsync -az --delete --exclude ".env" \
+          rsync -az --delete \
+            --exclude ".env" \
+            --exclude "data/" \
             -e "ssh -p ${{ secrets.VM_SSH_PORT_PROD }}" \
             ./ "${{ secrets.VM_USER_PROD }}@${{ secrets.VM_HOST_PROD }}:${{ secrets.VM_TARGET_DIR_PROD }}"
+
 
       - name: Remove obsolete 'version:' key from docker-compose.yml (optional)
         run: |
