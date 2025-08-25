@@ -50,17 +50,6 @@ jobs:
             -e "ssh -p ${{ secrets.VM_SSH_PORT_PROD }}" \
             ./ "${{ secrets.VM_USER_PROD }}@${{ secrets.VM_HOST_PROD }}:${{ secrets.VM_TARGET_DIR_PROD }}"
 
-      - name: Create .env on server (from secret SITE_TO_CHECK)
-        run: |
-          ssh -p "${{ secrets.VM_SSH_PORT_PROD }}" "${{ secrets.VM_USER_PROD }}@${{ secrets.VM_HOST_PROD }}" << 'EOF'
-          set -euo pipefail
-          cd "${{ secrets.VM_TARGET_DIR_PROD }}"
-          cat > .env << 'EENV'
-          ${{ secrets.SITE_TO_CHECK }}
-          EENV
-          chmod 600 .env
-          EOF
-
       - name: Remove obsolete 'version:' key from docker-compose.yml (optional)
         run: |
           ssh -p "${{ secrets.VM_SSH_PORT_PROD }}" "${{ secrets.VM_USER_PROD }}@${{ secrets.VM_HOST_PROD }}" \

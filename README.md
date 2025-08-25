@@ -2,6 +2,7 @@
 
 Microservice Flask pour crawler un site web, stocker les URLs dans PostgreSQL et exposer des métriques.
 
+
 ## Installation
 
 ### 1. Cloner le projet
