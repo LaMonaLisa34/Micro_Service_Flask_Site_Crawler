@@ -5,6 +5,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import atexit
 import asyncio
 
+from .crawler_async import crawl_site
+
 
 db = SQLAlchemy()
 
