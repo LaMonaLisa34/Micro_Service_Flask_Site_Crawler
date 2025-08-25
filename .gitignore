@@ -1,0 +1,54 @@
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environment
+venv/
+env/
+.venv/
+ENV/
+
+# Distribution / packaging
+*.egg-info/
+dist/
+build/
+
+# Logs
+*.log
+
+# SQLite (au cas où tu testes en local sans Postgres)
+*.sqlite3
+*.db
+
+# IDE / Editor configs
+.vscode/
+.idea/
+*.swp
+
+# Python cache
+*.pyo
+*.pyd
+*.pdb
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Docker
+*.pid
+*.seed
+*.bak
+*.old
+
+# Local environment files (au cas où tu en ajoutes un jour)
+.env
+.env.*
+
+# Coverage / testing
+htmlcov/
+.tox/
+.nox/
+.coverage
+coverage.xml
+.pytest_cache/

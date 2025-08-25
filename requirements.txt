@@ -1,0 +1,7 @@
+flask
+requests
+beautifulsoup4
+flask_sqlalchemy
+psycopg2-binary
+aiohttp
+apscheduler

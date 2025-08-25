@@ -1,0 +1,27 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15
+    container_name: postgres-crawler
+    restart: always
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: crawlerdb
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data:/var/lib/postgresql/data
+
+  crawler:
+    build: .
+    container_name: flask-crawler
+    restart: always
+    depends_on:
+      - postgres
+    environment:
+      - FLASK_ENV=development
+      - DATABASE_URL=postgresql://postgres:postgres@postgres:5432/crawlerdb
+    ports:
+      - "5002:5000"

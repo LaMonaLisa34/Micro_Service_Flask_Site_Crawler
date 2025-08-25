@@ -1,0 +1,87 @@
+name: CI/CD Site Crawler
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+  deploy-prod:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH agent (Prod)
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_KEY_PROD }}
+
+      - name: Add host to known_hosts (Prod)
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p "${{ secrets.VM_SSH_PORT_PROD }}" "${{ secrets.VM_HOST_PROD }}" >> ~/.ssh/known_hosts 2>/dev/null || true
+
+      - name: Sanity check SSH (Prod)
+        run: |
+          ssh -p "${{ secrets.VM_SSH_PORT_PROD }}" -o BatchMode=yes "${{ secrets.VM_USER_PROD }}@${{ secrets.VM_HOST_PROD }}" true
+
+      - name: Rsync repository to Prod (exclude .env)
+        run: |
+          rsync -az --delete --exclude ".env" \
+            -e "ssh -p ${{ secrets.VM_SSH_PORT_PROD }}" \
+            ./ "${{ secrets.VM_USER_PROD }}@${{ secrets.VM_HOST_PROD }}:${{ secrets.VM_TARGET_DIR_PROD }}"
+
+      - name: Create .env on server (from secret SITE_TO_CHECK)
+        run: |
+          ssh -p "${{ secrets.VM_SSH_PORT_PROD }}" "${{ secrets.VM_USER_PROD }}@${{ secrets.VM_HOST_PROD }}" << 'EOF'
+          set -euo pipefail
+          cd "${{ secrets.VM_TARGET_DIR_PROD }}"
+          cat > .env << 'EENV'
+          ${{ secrets.SITE_TO_CHECK }}
+          EENV
+          chmod 600 .env
+          EOF
+
+      - name: Remove obsolete 'version:' key from docker-compose.yml (optional)
+        run: |
+          ssh -p "${{ secrets.VM_SSH_PORT_PROD }}" "${{ secrets.VM_USER_PROD }}@${{ secrets.VM_HOST_PROD }}" \
+            "sed -i '/^version:/d' '${{ secrets.VM_TARGET_DIR_PROD }}/docker-compose.yml' || true"
+
+      - name: Docker Compose up (Prod)
+        run: |
+          ssh -p "${{ secrets.VM_SSH_PORT_PROD }}" "${{ secrets.VM_USER_PROD }}@${{ secrets.VM_HOST_PROD }}" << 'EOF'
+          set -euo pipefail
+          cd "${{ secrets.VM_TARGET_DIR_PROD }}"
+
+          # Détecte compose v2 ou v1
+          if docker compose version >/dev/null 2>&1; then
+            COMPOSE_CMD="docker compose"
+          elif docker-compose version >/dev/null 2>&1; then
+            COMPOSE_CMD="docker-compose"
+          else
+            echo "Erreur: ni 'docker compose' ni 'docker-compose' n'est installé." >&2
+            exit 1
+          fi
+
+          $COMPOSE_CMD down || true
+          $COMPOSE_CMD up -d --build
+          EOF
