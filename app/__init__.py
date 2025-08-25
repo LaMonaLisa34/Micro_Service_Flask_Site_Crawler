@@ -5,9 +5,6 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import atexit
 import asyncio
 
-from .crawler_async import crawl_site
-
-
 db = SQLAlchemy()
 
 def create_app():
@@ -25,11 +22,12 @@ def create_app():
     scheduler = BackgroundScheduler()
 
     def scheduled_crawl():
+        from .crawler_async import crawl_site   # <--- import déplacé ICI
         with app.app_context():
             print("Scheduled crawl lancé...")
             asyncio.run(crawl_site("https://chevauxdumonde.com", max_pages=5000))
 
-    # Job toutes les 10 minutes
+    # Job toutes les 2 minutes
     scheduler.add_job(scheduled_crawl, "interval", minutes=2)
     scheduler.start()
 
@@ -37,4 +35,3 @@ def create_app():
     atexit.register(lambda: scheduler.shutdown())
 
     return app
-
