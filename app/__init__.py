@@ -5,6 +5,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import atexit
 import asyncio
 
+
 db = SQLAlchemy()
 
 def create_app():

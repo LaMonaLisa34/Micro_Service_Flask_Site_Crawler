@@ -7,6 +7,8 @@ from .models import Url
 from flask import current_app as app
 import asyncio
 from .crawler_async import crawl_site 
+from flask import request, jsonify, Response
+from prometheus_client import generate_latest, Gauge, CollectorRegistry
 
 
 @app.route("/urls", methods=["GET"])
@@ -48,3 +50,28 @@ def report():
         "avg_response_time": round(avg_time, 3),
         "error_rate": f"{round(error_rate * 100, 2)}%"
     })
+
+@app.route("/metrics")
+def metrics():
+    urls = Url.query.all()
+    total = len(urls)
+    active = sum(1 for u in urls if u.is_active)
+    inactive = total - active
+    avg_time = sum((u.response_time or 0) for u in urls) / total if total else 0
+    error_rate = inactive / total if total else 0
+
+    registry = CollectorRegistry()
+
+    g_total = Gauge("crawler_total_urls", "Total URLs found", registry=registry)
+    g_active = Gauge("crawler_active_urls", "Active URLs (status=200)", registry=registry)
+    g_inactive = Gauge("crawler_inactive_urls", "Inactive URLs", registry=registry)
+    g_avg_time = Gauge("crawler_avg_response_time_seconds", "Average response time", registry=registry)
+    g_error_rate = Gauge("crawler_error_rate", "Error rate (0-1)", registry=registry)
+
+    g_total.set(total)
+    g_active.set(active)
+    g_inactive.set(inactive)
+    g_avg_time.set(avg_time)
+    g_error_rate.set(error_rate)
+
+    return Response(generate_latest(registry), mimetype="text/plain")

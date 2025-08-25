@@ -5,3 +5,4 @@ flask_sqlalchemy
 psycopg2-binary
 aiohttp
 apscheduler
+prometheus-client
