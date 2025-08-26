@@ -58,12 +58,31 @@ def metrics():
 
     registry = CollectorRegistry()
 
+    # --- Métriques globales ---
     Gauge("crawler_total_urls", "Total URLs found", registry=registry).set(total)
     Gauge("crawler_active_urls", "Active URLs (status=200)", registry=registry).set(active)
     Gauge("crawler_inactive_urls", "Inactive URLs", registry=registry).set(inactive)
     Gauge("crawler_avg_response_time_seconds", "Average response time", registry=registry).set(avg_time)
     Gauge("crawler_error_rate", "Error rate (0-1)", registry=registry).set(error_rate)
 
+    # --- Compteurs par code HTTP ---
+    g_status_count = Gauge(
+        "crawler_status_count",
+        "Number of URLs per HTTP status",
+        ["status"],
+        registry=registry
+    )
+
+    # Initialiser les codes qu’on veut toujours voir
+    for code in ["200", "404", "500", "error", "unknown"]:
+        g_status_count.labels(status=code).set(0)
+
+    # Incrémenter avec les données réelles
+    for u in urls:
+        status_label = str(u.status_code) if u.status_code else "error"
+        g_status_count.labels(status=status_label).inc()
+
+    # --- Métriques détaillées par URL ---
     g_url_status = Gauge(
         "crawler_url_status",
         "Status of each crawled URL",
@@ -84,3 +103,4 @@ def metrics():
             g_url_time.labels(url=u.url).set(u.response_time)
 
     return Response(generate_latest(registry), mimetype="text/plain")
+
