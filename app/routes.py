@@ -154,19 +154,13 @@ def metrics():
     registry = CollectorRegistry()
 
     # --- Métriques globales ---
-    g_total = Gauge("crawler_total_urls", "Total URLs found", registry=registry)
-    g_active = Gauge("crawler_active_urls", "Active URLs (status=200)", registry=registry)
-    g_inactive = Gauge("crawler_inactive_urls", "Inactive URLs", registry=registry)
-    g_avg_time = Gauge("crawler_avg_response_time_seconds", "Average response time", registry=registry)
-    g_error_rate = Gauge("crawler_error_rate", "Error rate (0-1)", registry=registry)
+    Gauge("crawler_total_urls", "Total URLs found", registry=registry).set(total)
+    Gauge("crawler_active_urls", "Active URLs (status=200)", registry=registry).set(active)
+    Gauge("crawler_inactive_urls", "Inactive URLs", registry=registry).set(inactive)
+    Gauge("crawler_avg_response_time_seconds", "Average response time", registry=registry).set(avg_time)
+    Gauge("crawler_error_rate", "Error rate (0-1)", registry=registry).set(error_rate)
 
-    g_total.set(total)
-    g_active.set(active)
-    g_inactive.set(inactive)
-    g_avg_time.set(avg_time)
-    g_error_rate.set(error_rate)
-
-    # --- Métriques détaillées par URL ---
+    # --- Métriques détaillées ---
     g_url_status = Gauge(
         "crawler_url_status",
         "Status of each crawled URL",
@@ -181,11 +175,10 @@ def metrics():
     )
 
     for u in urls:
-        status = "200" if u.is_active else "error"
-        g_url_status.labels(url=u.url, status=status).set(1 if u.is_active else 0)
-        if u.response_time:
+        # Ici on exporte le vrai code HTTP
+        status_label = str(u.status_code) if u.status_code else "unknown"
+        g_url_status.labels(url=u.url, status=status_label).set(1)
+        if u.response_time is not None:
             g_url_time.labels(url=u.url).set(u.response_time)
-
-    return Response(generate_latest(registry), mimetype="text/plain")
 
     return Response(generate_latest(registry), mimetype="text/plain")
