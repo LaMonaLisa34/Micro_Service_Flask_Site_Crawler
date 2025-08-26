@@ -1,4 +1,3 @@
-# app/__init__.py
 from flask import Flask
 from flask_sqlalchemy import SQLAlchemy
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -15,14 +14,18 @@ def create_app():
     db.init_app(app)
 
     with app.app_context():
-        from . import routes, models
+        from . import models
         db.create_all()
+
+    # --- Importer et enregistrer le blueprint ---
+    from .routes import bp
+    app.register_blueprint(bp)
 
     # --- Scheduler ---
     scheduler = BackgroundScheduler()
 
     def scheduled_crawl():
-        from .crawler_async import crawl_site   # <--- import déplacé ICI
+        from .crawler_async import crawl_site
         with app.app_context():
             print("Scheduled crawl lancé...")
             asyncio.run(crawl_site("https://chevauxdumonde.com", max_pages=5000))
