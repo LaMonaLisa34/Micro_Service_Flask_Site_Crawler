@@ -181,9 +181,9 @@ def metrics():
     )
 
     for u in urls:
-        status = "200" if u.is_active else "error"
-        g_url_status.labels(url=u.url, status=status).set(1 if u.is_active else 0)
-        if u.response_time:
+        status_label = str(u.status_code) if u.status_code else "unknown"
+        g_url_status.labels(url=u.url, status=status_label).set(1)
+        if u.response_time is not None:
             g_url_time.labels(url=u.url).set(u.response_time)
 
     return Response(generate_latest(registry), mimetype="text/plain")
