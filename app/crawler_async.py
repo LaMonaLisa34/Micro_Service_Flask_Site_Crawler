@@ -9,18 +9,25 @@ from . import db
 from .models import Url
 
 
-async def fetch(session, url):
+async def fetch(session, url, retries=3, backoff=1):
     """
-    Télécharge une page et renvoie (url, status, duration, html).
+    Télécharge une page avec retries.
+    Retourne (url, status, duration, html).
+    - retries : nombre de tentatives max
+    - backoff : temps d’attente entre tentatives (exponentiel)
     """
-    try:
-        start = time.time()
-        async with session.get(url, timeout=10) as response:
-            html = await response.text()
-            duration = time.time() - start
-            return url, response.status, duration, html
-    except Exception:
-        return url, None, None, None
+    for attempt in range(1, retries + 1):
+        try:
+            start = time.time()
+            async with session.get(url, timeout=10) as response:
+                html = await response.text()
+                duration = time.time() - start
+                return url, response.status, duration, html
+        except Exception as e:
+            if attempt < retries:
+                await asyncio.sleep(backoff * attempt)  # backoff exponentiel
+                continue
+            return url, None, None, None
 
 
 async def crawl_site(start_url, max_pages=300, commit_batch=20, inject_tests=True):
@@ -52,6 +59,12 @@ async def crawl_site(start_url, max_pages=300, commit_batch=20, inject_tests=Tru
             visited.add(url)
 
             fetched_url, status, duration, html = await fetch(session, url)
+
+            # Si échec réseau ou erreur 5xx → on retente plus tard
+            if status is None or (status >= 500):
+                print(f"[Retry] {url} en erreur ({status}), remise en file d’attente…")
+                if url not in to_visit:  # éviter doublons infinis
+                    to_visit.append(url)
 
             # Sauvegarde dans le buffer
             url_entry = Url(
