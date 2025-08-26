@@ -1,18 +1,15 @@
-# app/routes.py
-from flask import request, jsonify, Response
+from flask import Blueprint, request, jsonify, Response
 from datetime import datetime
 import asyncio
+from prometheus_client import generate_latest, Gauge, CollectorRegistry
 from . import db
 from .models import Url
 from .crawler_async import crawl_site
-from prometheus_client import generate_latest, Gauge, CollectorRegistry
 
+bp = Blueprint("routes", __name__)
 
-@app.route("/urls", methods=["GET"])
+@bp.route("/urls", methods=["GET"])
 def list_urls():
-    """
-    Retourne toutes les URLs connues avec leurs métadonnées.
-    """
     urls = Url.query.all()
     return jsonify([{
         "url": u.url,
@@ -23,26 +20,17 @@ def list_urls():
     } for u in urls])
 
 
-@app.route("/crawl_site", methods=["POST", "GET"])
+@bp.route("/crawl_site", methods=["POST", "GET"])
 def crawl_entire_site():
-    """
-    Lance un crawl complet depuis l’URL donnée en paramètre.
-    Exemple : /crawl_site?url=https://monsite.com
-    """
     start_url = request.args.get("url")
     if not start_url:
         return {"error": "Missing ?url= param"}, 400
-
     asyncio.run(crawl_site(start_url, max_pages=5000))
-
     return {"message": f"Crawl terminé pour {start_url}"}
 
 
-@app.route("/report", methods=["GET"])
+@bp.route("/report", methods=["GET"])
 def report():
-    """
-    Retourne un résumé des URLs trouvées et des stats.
-    """
     urls = Url.query.all()
     total = len(urls)
     active = sum(1 for u in urls if u.is_active)
@@ -59,11 +47,8 @@ def report():
     })
 
 
-@app.route("/metrics")
+@bp.route("/metrics")
 def metrics():
-    """
-    Expose les métriques Prometheus pour Grafana.
-    """
     urls = Url.query.all()
     total = len(urls)
     active = sum(1 for u in urls if u.is_active)
@@ -73,14 +58,12 @@ def metrics():
 
     registry = CollectorRegistry()
 
-    # --- Métriques globales ---
     Gauge("crawler_total_urls", "Total URLs found", registry=registry).set(total)
     Gauge("crawler_active_urls", "Active URLs (status=200)", registry=registry).set(active)
     Gauge("crawler_inactive_urls", "Inactive URLs", registry=registry).set(inactive)
     Gauge("crawler_avg_response_time_seconds", "Average response time", registry=registry).set(avg_time)
     Gauge("crawler_error_rate", "Error rate (0-1)", registry=registry).set(error_rate)
 
-    # --- Métriques détaillées par URL ---
     g_url_status = Gauge(
         "crawler_url_status",
         "Status of each crawled URL",
