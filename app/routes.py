@@ -1,3 +1,4 @@
+#routes.py
 from flask import Blueprint, request, jsonify, Response
 from datetime import datetime
 import asyncio
@@ -45,7 +46,6 @@ def report():
         "avg_response_time": round(avg_time, 3),
         "error_rate": f"{round(error_rate * 100, 2)}%"
     })
-
 @bp.route("/metrics")
 def metrics():
     urls = Url.query.all()
@@ -55,7 +55,7 @@ def metrics():
     avg_time = sum((u.response_time or 0) for u in urls) / total if total else 0
     error_rate = inactive / total if total else 0
 
-    # Récupérer le dernier crawl
+    # Dernier crawl (timestamp Unix en secondes)
     last_crawl_ts = 0
     if urls:
         last_seen_values = [u.last_seen for u in urls if u.last_seen]
@@ -80,13 +80,13 @@ def metrics():
         registry=registry
     )
 
-    # Initialiser les codes qu’on veut toujours voir
-    for code in ["200", "404", "500", "error", "unknown"]:
+    # Initialiser quelques codes courants + 'error' pour les status absents
+    for code in ["200", "301", "302", "404", "500", "error"]:
         g_status_count.labels(status=code).set(0)
 
-    # Incrémenter avec les données réelles
     for u in urls:
-        status_label = str(u.status_code) if u.status_code else "error"
+        # Ne pas utiliser 'if u.status_code' (0/False) -> utiliser 'is not None'
+        status_label = str(u.status_code) if (u.status_code is not None) else "error"
         g_status_count.labels(status=status_label).inc()
 
     # --- Métriques détaillées par URL ---
@@ -104,7 +104,8 @@ def metrics():
     )
 
     for u in urls:
-        status_label = str(u.status_code) if u.status_code else "unknown"
+        # Harmoniser: pas de 'unknown', uniquement 'error' quand le status est absent
+        status_label = str(u.status_code) if (u.status_code is not None) else "error"
         g_url_status.labels(url=u.url, status=status_label).set(1)
         if u.response_time is not None:
             g_url_time.labels(url=u.url).set(u.response_time)
