@@ -46,7 +46,6 @@ def report():
         "error_rate": f"{round(error_rate * 100, 2)}%"
     })
 
-
 @bp.route("/metrics")
 def metrics():
     urls = Url.query.all()
@@ -56,6 +55,13 @@ def metrics():
     avg_time = sum((u.response_time or 0) for u in urls) / total if total else 0
     error_rate = inactive / total if total else 0
 
+    # Récupérer le dernier crawl
+    last_crawl_ts = 0
+    if urls:
+        last_seen_values = [u.last_seen for u in urls if u.last_seen]
+        if last_seen_values:
+            last_crawl_ts = max(last_seen_values).timestamp()
+
     registry = CollectorRegistry()
 
     # --- Métriques globales ---
@@ -64,6 +70,7 @@ def metrics():
     Gauge("crawler_inactive_urls", "Inactive URLs", registry=registry).set(inactive)
     Gauge("crawler_avg_response_time_seconds", "Average response time", registry=registry).set(avg_time)
     Gauge("crawler_error_rate", "Error rate (0-1)", registry=registry).set(error_rate)
+    Gauge("crawler_last_crawl_timestamp", "Unix timestamp of last crawl", registry=registry).set(last_crawl_ts)
 
     # --- Compteurs par code HTTP ---
     g_status_count = Gauge(
@@ -103,4 +110,3 @@ def metrics():
             g_url_time.labels(url=u.url).set(u.response_time)
 
     return Response(generate_latest(registry), mimetype="text/plain")
-
