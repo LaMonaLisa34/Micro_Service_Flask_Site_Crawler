@@ -46,76 +46,82 @@ def report():
         "avg_response_time": round(avg_time, 3),
         "error_rate": f"{round(error_rate * 100, 2)}%"
     })
+    
 @bp.route("/metrics")
 def metrics():
     urls = Url.query.all()
-    total = len(urls)
 
-    # Actif = toute 2xx
-    active = sum(1 for u in urls if (u.status_code is not None and 200 <= u.status_code < 300))
+    total = len(urls)
+    active = sum(1 for u in urls if u.is_active)
     inactive = total - active
     avg_time = sum((u.response_time or 0) for u in urls) / total if total else 0
-    # Taux d'erreur = non-2xx / total
-    error_rate = (sum(1 for u in urls if (u.status_code is None or not (200 <= u.status_code < 300))) / total) if total else 0
+    error_rate = inactive / total if total else 0
 
-    # Dernier crawl (timestamp Unix en secondes)
+    # last crawl (unix seconds)
     last_crawl_ts = 0
-    if urls:
-        last_seen_values = [u.last_seen for u in urls if u.last_seen]
-        if last_seen_values:
-            last_crawl_ts = max(last_seen_values).timestamp()
+    last_seen_values = [u.last_seen for u in urls if u.last_seen]
+    if last_seen_values:
+        last_crawl_ts = max(last_seen_values).timestamp()
 
-    registry = CollectorRegistry()
+    reg = CollectorRegistry()
 
-    # --- Métriques globales ---
-    Gauge("crawler_total_urls", "Total URLs found", registry=registry).set(total)
-    Gauge("crawler_active_urls", "Active URLs (status 2xx)", registry=registry).set(active)
-    Gauge("crawler_inactive_urls", "Inactive URLs (non-2xx)", registry=registry).set(inactive)
-    Gauge("crawler_avg_response_time_seconds", "Average response time", registry=registry).set(avg_time)
-    Gauge("crawler_error_rate", "Error rate (0-1)", registry=registry).set(error_rate)
-    Gauge("crawler_last_crawl_timestamp", "Unix timestamp of last crawl", registry=registry).set(last_crawl_ts)
+    # Globales (une seule série chacune)
+    Gauge("crawler_total_urls", "Total URLs found", registry=reg).set(total)
+    Gauge("crawler_active_urls", "Active URLs (status=200)", registry=reg).set(active)
+    Gauge("crawler_inactive_urls", "Inactive URLs", registry=reg).set(inactive)
+    Gauge("crawler_avg_response_time_seconds", "Average response time", registry=reg).set(avg_time)
+    Gauge("crawler_error_rate", "Error rate (0-1)", registry=reg).set(error_rate)
+    Gauge("crawler_last_crawl_timestamp", "Unix timestamp of last crawl", registry=reg).set(last_crawl_ts)
 
-    # --- Compteurs par code HTTP (optionnel, agrégé) ---
+    # Compteurs agrégés par code (une série par "status" — SANS 'url')
     g_status_count = Gauge(
         "crawler_status_count",
-        "Number of URLs per HTTP status",
+        "Number of URLs per HTTP status (aggregated)",
         ["status"],
-        registry=registry
+        registry=reg,
     )
-    # Compte dynamique par code (None -> 'error')
-    counts = {}
-    for u in urls:
-        key = str(u.status_code) if (u.status_code is not None) else "error"
-        counts[key] = counts.get(key, 0) + 1
-    for code, cnt in counts.items():
-        g_status_count.labels(status=code).set(cnt)
+    # initialise proprement (évite 'unknown' résiduels)
+    for code in ["200", "301", "302", "404", "500", "error"]:
+        g_status_count.labels(status=code).set(0)
 
-    # --- Métriques détaillées par URL (une seule série par URL) ---
-    g_url_time = Gauge(
-        "crawler_url_response_time_seconds",
-        "Response time of each crawled URL",
-        ["url"],
-        registry=registry
-    )
-    g_url_status_code = Gauge(
+    # Métriques PAR URL (⚠️ contiennent le label 'url' et UNE SEULE série par URL)
+    g_status_code = Gauge(
         "crawler_url_status_code",
-        "HTTP status code for each URL (-1 if unknown)",
+        "HTTP status code for each URL",
         ["url"],
-        registry=registry
+        registry=reg,
     )
-    g_url_is_error = Gauge(
+    g_is_error = Gauge(
         "crawler_url_is_error",
-        "1 if URL is not 2xx (or unknown), else 0",
+        "1 if URL is considered error, else 0",
         ["url"],
-        registry=registry
+        registry=reg,
+    )
+    g_resp_time = Gauge(
+        "crawler_url_response_time_seconds",
+        "Response time per URL",
+        ["url"],
+        registry=reg,
     )
 
+    # Remplissage (et agrégats)
+    per_code = {}
     for u in urls:
-        status_num = int(u.status_code) if (u.status_code is not None) else -1
-        g_url_status_code.labels(url=u.url).set(status_num)
-        is_err = 0 if (200 <= status_num < 300) else 1
-        g_url_is_error.labels(url=u.url).set(is_err)
-        if u.response_time is not None:
-            g_url_time.labels(url=u.url).set(u.response_time)
+        # statut numérique ou None
+        status_val = int(u.status_code) if (u.status_code is not None) else None
 
-    return Response(generate_latest(registry), mimetype="text/plain")
+        # --- séries par URL ---
+        # on émet TOUJOURS 'crawler_url_status_code{url="..."}' (pas de série fantôme)
+        g_status_code.labels(url=u.url).set(status_val if status_val is not None else -1)  # -1 = inconnu
+        g_is_error.labels(url=u.url).set(1 if (status_val not in (200, 301, 302) or status_val is None) else 0)
+        if u.response_time is not None:
+            g_resp_time.labels(url=u.url).set(u.response_time)
+
+        # --- agrégat par code ---
+        key = str(status_val) if status_val is not None else "error"
+        per_code[key] = per_code.get(key, 0) + 1
+
+    for code, count in per_code.items():
+        g_status_count.labels(status=code).set(count)
+
+    return Response(generate_latest(reg), mimetype="text/plain")
