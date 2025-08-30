@@ -31,7 +31,7 @@ def create_app():
             asyncio.run(crawl_site("https://chevauxdumonde.com", max_pages=5000))
 
     # Job toutes les 2 minutes
-    scheduler.add_job(scheduled_crawl, "interval", minutes=5)
+    scheduler.add_job(scheduled_crawl, "interval", minutes=2)
     scheduler.start()
 
     # Arrêt propre du scheduler

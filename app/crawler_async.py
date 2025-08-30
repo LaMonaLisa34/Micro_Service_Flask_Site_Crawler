@@ -30,19 +30,17 @@ async def fetch(session, url, retries=3, backoff=1):
             return url, None, None, None
 
 
-async def crawl_site(start_url, max_pages=300, commit_batch=20, inject_tests=True):
+async def crawl_site(start_url, max_pages=300, commit_batch=20, inject_tests=True, max_requeue=2):
     """
     Crawler async qui explore un site et stocke les infos en DB.
-    - start_url : URL de départ
-    - max_pages : limite du nombre de pages à visiter
-    - commit_batch : taille des batchs avant commit DB
-    - inject_tests : si True, on ajoute quelques URLs volontairement invalides
+    - inject_tests: laissé tel quel (True par défaut) pour ne pas changer ton comportement actuel.
+    - max_requeue: nb max de ré-enfilages pour 5xx/échecs réseau.
     """
     visited = set()
+    attempts = {}
     to_visit = [start_url]
-    buffer = []  # URLs en attente de commit DB
+    buffer = []
 
-    # Ajout d'URLs de test (404, 500, admin) pour toujours avoir des stats en cas de site "parfait"
     if inject_tests:
         domain = urlparse(start_url).scheme + "://" + urlparse(start_url).netloc
         to_visit.extend([
@@ -56,51 +54,52 @@ async def crawl_site(start_url, max_pages=300, commit_batch=20, inject_tests=Tru
             url = to_visit.pop(0)
             if url in visited:
                 continue
-            visited.add(url)
 
             fetched_url, status, duration, html = await fetch(session, url)
 
-            # Si échec réseau ou erreur 5xx → on retente plus tard
-            if status is None or (status >= 500):
-                print(f"[Retry] {url} en erreur ({status}), remise en file d’attente…")
-                if url not in to_visit:  # éviter doublons infinis
-                    to_visit.append(url)
-
-            # Sauvegarde dans le buffer
-            url_entry = Url(
+            # Upsert (url est PK -> merge met à jour)
+            entry = Url(
                 url=fetched_url,
                 status_code=status,
                 response_time=duration,
                 last_seen=datetime.utcnow(),
-                is_active=(status == 200),
+                is_active=(status is not None and 200 <= status < 300),
                 crawled=True
             )
-            buffer.append(url_entry)
+            db.session.merge(entry)
+            buffer.append(entry)
+
+            # Politique de ré-enfilage pour 5xx/échecs réseau
+            if status is None or (status >= 500):
+                attempts[url] = attempts.get(url, 0) + 1
+                if attempts[url] <= max_requeue:
+                    # On retentera plus tard dans CE run (ne pas marquer visited)
+                    to_visit.append(url)
+                else:
+                    # On abandonne après N essais -> on marque visité
+                    visited.add(url)
+            else:
+                # Cas "terminé" (2xx/3xx/4xx) -> on marque visité
+                visited.add(url)
+
+                # Exploration uniquement si 2xx + HTML
+                if 200 <= status < 300 and html:
+                    try:
+                        soup = BeautifulSoup(html, "html.parser")
+                        for link in soup.find_all("a", href=True):
+                            abs_url = urljoin(url, link["href"])
+                            if urlparse(abs_url).netloc == urlparse(start_url).netloc:
+                                if abs_url not in visited:
+                                    to_visit.append(abs_url)
+                    except Exception:
+                        pass
 
             # Commit par batch
             if len(buffer) >= commit_batch:
-                for entry in buffer:
-                    db.session.merge(entry)
                 db.session.commit()
                 buffer.clear()
 
-            # Exploration uniquement si page valide
-            if status == 200 and html:
-                try:
-                    soup = BeautifulSoup(html, "html.parser")
-                    for link in soup.find_all("a", href=True):
-                        abs_url = urljoin(url, link["href"])
-                        # On reste dans le même domaine
-                        if urlparse(abs_url).netloc == urlparse(start_url).netloc:
-                            if abs_url not in visited:
-                                to_visit.append(abs_url)
-                except Exception:
-                    continue
-
-    # Commit final
     if buffer:
-        for entry in buffer:
-            db.session.merge(entry)
         db.session.commit()
 
     print(f"[Crawler] Terminé : {len(visited)} pages visitées.")
